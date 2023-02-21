@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <PackageId>CSL</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Fernando</Authors>
+    <Company>Gomez</Company>
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
