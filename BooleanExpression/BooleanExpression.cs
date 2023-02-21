@@ -1,4 +1,6 @@
-﻿namespace CSL.BooleanExpression
+﻿using CSL.Trees;
+
+namespace CSL.BooleanExpression
 {
     public class BooleanExpression
     {
