@@ -1,35 +1,74 @@
-﻿using CSL.Trees;
+﻿using BenchmarkDotNet.Attributes;
+using CSL.Trees;
 
-namespace CSL.BooleanExpression
+namespace CSL.BooleanExpression;
+
+public enum BooleanExpressionTokenType
 {
-    public class BooleanExpression
+    GREATER_THAN,
+    GREATER_THAN_OR_EQUAL,
+    LESS_THAN,
+    LESS_THAN_OR_EQUAL,
+    NOT,
+    EQUAL,
+    NOT_EQUAL,
+    OR,
+    AND,
+    FUNCTION,
+    VARIABLE,
+    STRING,
+    BOOLEAN,
+    INTEGER,
+    FLOAT,
+    UNKNOWN,
+}
+
+public class BooleanExpression
+{
+    private string m_Raw;
+    protected NTree<string> m_ExpressionTree;
+
+    public BooleanExpression(string expression)
     {
-        private string m_Raw;
-        private NTree<string> m_ExpressionTree;
+        if (!BooleanExpressionParser.CheckBooleanExpression(expression)) throw new Exception("Expresión no válida.");
+        m_Raw = BooleanExpressionParser.AddParenthesis(expression);
+        m_ExpressionTree = BuildExpressionTree(m_Raw);
+    }
 
-        public BooleanExpression(string expression)
+    public void PreorderTraverse(Action<NTree<string>> func)
+    {
+        m_ExpressionTree.PreorderTraverse(func);
+    }
+
+    public void PostorderTraverse(Action<NTree<string>> func)
+    {
+        m_ExpressionTree.PostorderTraverse(func);
+    }
+
+    public string GetSqlCondition()
+    {
+        return DeepGetSqlCondition(m_ExpressionTree);
+    }
+
+    protected virtual BooleanExpressionTokenType GetTokenType(string token)
+    {
+        string parsedToken = token.Trim();
+        switch(token)
         {
-            if (!BooleanExpressionParser.CheckBooleanExpression(expression)) throw new Exception("Expresión no válida.");
-            m_Raw = BooleanExpressionParser.AddParenthesis(expression);
-            m_ExpressionTree = BuildExpressionTree(m_Raw);
+            case ">=": return BooleanExpressionTokenType.GREATER_THAN_OR_EQUAL;
+            case ">": return BooleanExpressionTokenType.GREATER_THAN;
+            case "<=": return BooleanExpressionTokenType.LESS_THAN_OR_EQUAL;
+            case "<": return BooleanExpressionTokenType.LESS_THAN;
+            case "==": return BooleanExpressionTokenType.EQUAL;
+            case "&": return BooleanExpressionTokenType.AND;
+            case "|": return BooleanExpressionTokenType.OR;
+            case "!": return BooleanExpressionTokenType.NOT;
+            case "!=": return BooleanExpressionTokenType.NOT_EQUAL;
+            default: return BooleanExpressionTokenType.UNKNOWN;
         }
+    }
 
-        public void PreorderTraverse(Action<NTree<string>> func)
-        {
-            m_ExpressionTree.PreorderTraverse(func);
-        }
-
-        public void PostorderTraverse(Action<NTree<string>> func)
-        {
-            m_ExpressionTree.PostorderTraverse(func);
-        }
-
-        public string GetSqlCondition()
-        {
-            return DeepGetSqlCondition(m_ExpressionTree);
-        }
-
-        private static string DeepGetSqlCondition(NTree<string> root)
+    private static string DeepGetSqlCondition(NTree<string> root)
         {
             string partial = "";
 
@@ -83,7 +122,7 @@ namespace CSL.BooleanExpression
             return partial;
         }
 
-        private static NTree<string> BuildExpressionTree(string expression)
+    private static NTree<string> BuildExpressionTree(string expression)
         {
             // Primero eliminamos paréntesis exteriores...
             while (expression.StartsWith('(') && expression.EndsWith(')'))
@@ -137,9 +176,9 @@ namespace CSL.BooleanExpression
             while (i < expression.Length)
             {
                 string currentSubstring = expression.Substring(i);
-                if (currentSubstring.StartsWith("(") || currentSubstring.StartsWith("!("))
+                if (currentSubstring.StartsWith(" (") || currentSubstring.StartsWith("!(") )
                 {
-                    int pstart = i + (currentSubstring.StartsWith("!(") ? 1 : 0);
+                    int pstart = i + 1;
                     int pend = BooleanExpressionParser.GetClosingParenthesisIndex(pstart, expression);
                     children.Add(expression.Substring(i, pend - i + 1));
                     i = pend + 1;
@@ -167,7 +206,7 @@ namespace CSL.BooleanExpression
             return root;
         }
 
-        private static string GetStringLevelType(string expression)
+    private static string GetStringLevelType(string expression)
         {
             // Los tipos de raices son >=, ==, >, <=, !=, !, | y &. Donde !, | y & son prioritarios, es decir, sabemos que el string
             // de entrada no puede tener &, |, ! a la vez en un mismo string, miramos si contienen esos, si no lo contienen, deberá ser de tipo
@@ -206,175 +245,208 @@ namespace CSL.BooleanExpression
             return expression;
             throw new Exception($"La string {expression} es inválida");
         }
-    }
+}
 
-    public class BooleanExpressionParser
+public class BooleanExpressionParser
+{
+    private static List<char> m_GroupCharacters = new List<char> { '|', '&' };
+
+    public static bool CheckBooleanExpression(string expression)
     {
-        private static List<char> m_GroupCharacters = new List<char> { '|', '&' };
-
-        public static bool CheckBooleanExpression(string expression)
-        {
-            // La expresión booleana debe tener todos los paréntesis que abran y cierren.
-            if (!CheckParenthesis(expression)) return false;
-            if (!CheckLogicSymbols(expression)) return false;
-            return true;
-        }
-        public static string AddParenthesis(string expression)
-        {
-            // Añadimos paréntesis a una expresión booleana, la expresion se ejecuta en orden de precedencia !, & y |.
-            string partial = "";
-            for (int i = 0; i < expression.Length; i++)
-            {
-                if (expression[i] == '(')
-                {
-                    int j = GetClosingParenthesisIndex(i, expression);
-                    partial += "(" + AddParenthesis(expression.Substring(i + 1, j - i - 1)) + ")";
-                    i = j;
-                    continue;
-                }
-                partial += expression[i];
-            }
-
-            return GroupByParenthesis(GroupByParenthesis(partial, '|'), '&');
-        }
-        private static string GroupByParenthesis(string expression, char match)
-        {
-            List<int> matches = new List<int>();
-            int lastNotGroupCharacter = -1;
-            for (int i = 0; i < expression.Length; i++)
-            {
-                // Si encontamos un paréntesis no buscamos...
-                if (expression[i] == '(')
-                {
-                    i = GetClosingParenthesisIndex(i, expression);
-                    continue;
-                }
-                if (expression[i] == match)
-                {
-                    // Primero buscamos hacia la izq el último carácter...
-                    int j = i - 1;
-                    while (j >= 0)
-                    {
-                        if (expression[j] != match)
-                        {
-                            if (m_GroupCharacters.Contains(expression[j]))
-                            {
-                                j++;
-                                break;
-                            }
-                            else if (expression[j] == ')') j = GetOpeningParenthesisIndex(j, expression);
-                        }
-                        --j;
-                    }
-                    if (j < 0) j = 0;
-                    matches.Add(j);
-                    // Debemos buscar el punto en el que encontramos un carácter no soportado...
-                    j = i + 1;
-                    while (j < expression.Length)
-                    {
-                        if (expression[j] != match)
-                        {
-                            if (m_GroupCharacters.Contains(expression[j]))
-                            {
-                                j--;
-                                break;
-                            }
-                            else if (expression[j] == '(') j = GetClosingParenthesisIndex(j, expression);
-                            
-                        }
-                        ++j;
-                    }
-                    if (j >= expression.Length) j = expression.Length - 1;
-                    i = j; // El carácter seguro que no es match si la expresión es correcta, puede ser otro carácter.
-                    matches.Add(j); // El carácter de finalización del grupo...
-                }
-            }
-
-            if (matches.Count == 0) return expression;
-            string result = "";
-            int previous = 0;
-            // Matches contiene todos los matches para cada grupo... Para cada grupo debemos retornar la string pero con los paréntesis incorporados.
-            for (int i = 0; i < matches.Count && previous < expression.Length; i += 2)
-            {
-                int start = matches[i];
-                int end = matches[i + 1];
-
-                result += expression.Substring(previous, start - previous) + " (" + expression.Substring(start, 1 + end - start).Trim() + ") ";
-                previous = end + 1;
-            }
-            // Si falta algo de texto, lo añadimos...
-            result += expression.Substring(previous, expression.Length - previous);
-            return result.Trim();
-        }
-        public static int GetClosingParenthesisIndex(int current, string expression)
-        {
-            int count = 1;
-
-            if (expression[current] != '(') throw new Exception("Not a parenthesis!");
-            for (int i = current + 1; i < expression.Length; i++)
-            {
-                if (expression[i] == '(') ++count;
-                if (expression[i] == ')')
-                {
-                    --count;
-                    if (count == 0) return i;
-                }
-            }
-
-            return -1;
-        }
-        public static int GetOpeningParenthesisIndex(int current, string expression)
-        {
-            int count = 1;
-
-            if (expression[current] != ')') throw new Exception("Not a parenthesis!");
-            for (int i = current - 1; i >= 0; i--)
-            {
-                if (expression[i] == ')') ++count;
-                if (expression[i] == '(')
-                {
-                    --count;
-                    if (count == 0) return i;
-                }
-            }
-
-            return -1;
-        }
-        
-        private static bool CheckParenthesis(string expression)
-        {
-            int count = 0;
-            for (int i = 0; i < expression.Length; ++i)
-            {
-                if (expression[i] == '(') ++count;
-                if (expression[i] == ')') --count;
-            }
-            if (count == 0) return true;
-            return false;
-        }
-        private static bool CheckLogicSymbols(string expression)
-        {
-            // Miramos si contiene &, |, ! seguidos...
-            for (int i = 1; i < expression.Length; ++i)
-            {
-                if (expression[i - 1] == '!' && expression[i] == '!') return false;
-                if (expression[i - 1] == '&' && expression[i] == '&') return false;
-                if (expression[i - 1] == '|' && expression[i] == '|') return false;
-            }
-
-            // Miramos si los simbolos estan separados por espacios...
-            for (int i = 1; i < expression.Length - 1; ++i)
-            {
-                char c = expression[i];
-                if (c == '!' || c == '&' || c == '|')
-                {
-                    if (expression[i - 1] != ' ' && expression[i + 1] != ' ') return false;
-                }
-            }
-
-            // Deberiamos revisar que los operadores son correctos... por ahora no.
-
-            return true;
-        }
+        // La expresión booleana debe tener todos los paréntesis que abran y cierren.
+        if (!CheckParenthesis(expression)) return false;
+        if (!CheckLogicSymbols(expression)) return false;
+        return true;
     }
+    public static string AddParenthesis(string expression)
+    {
+        // Añadimos paréntesis a una expresión booleana, la expresion se ejecuta en orden de precedencia !, & y |.
+        string partial = "";
+        for (int i = 0; i < expression.Length; i++)
+        {
+            if (expression[i] == '(')
+            {
+                int j = GetClosingParenthesisIndex(i, expression);
+                partial += "(" + AddParenthesis(expression.Substring(i + 1, j - i - 1)) + ")";
+                i = j;
+                continue;
+            }
+            partial += expression[i];
+        }
+
+        return GroupByParenthesis(GroupByParenthesis(partial, '|'), '&');
+    }
+    private static string GroupByParenthesis(string expression, char match)
+    {
+        List<int> matches = new List<int>();
+        int lastNotGroupCharacter = -1;
+        for (int i = 0; i < expression.Length; i++)
+        {
+            // Si encontamos un paréntesis no buscamos...
+            if (expression[i] == '(')
+            {
+                i = GetClosingParenthesisIndex(i, expression);
+                continue;
+            }
+            if (expression[i] == match)
+            {
+                // Primero buscamos hacia la izq el último carácter...
+                int j = i - 1;
+                while (j >= 0)
+                {
+                    if (expression[j] != match)
+                    {
+                        if (m_GroupCharacters.Contains(expression[j]))
+                        {
+                            j++;
+                            break;
+                        }
+                        else if (expression[j] == ')') j = GetOpeningParenthesisIndex(j, expression);
+                    }
+                    --j;
+                }
+                if (j < 0) j = 0;
+                matches.Add(j);
+                // Debemos buscar el punto en el que encontramos un carácter no soportado...
+                j = i + 1;
+                while (j < expression.Length)
+                {
+                    if (expression[j] != match)
+                    {
+                        if (m_GroupCharacters.Contains(expression[j]))
+                        {
+                            j--;
+                            break;
+                        }
+                        else if (expression[j] == '(') j = GetClosingParenthesisIndex(j, expression);
+                        
+                    }
+                    ++j;
+                }
+                if (j >= expression.Length) j = expression.Length - 1;
+                i = j; // El carácter seguro que no es match si la expresión es correcta, puede ser otro carácter.
+                matches.Add(j); // El carácter de finalización del grupo...
+            }
+        }
+
+        if (matches.Count == 0) return expression;
+        string result = "";
+        int previous = 0;
+        // Matches contiene todos los matches para cada grupo... Para cada grupo debemos retornar la string pero con los paréntesis incorporados.
+        for (int i = 0; i < matches.Count && previous < expression.Length; i += 2)
+        {
+            int start = matches[i];
+            int end = matches[i + 1];
+
+            result += expression.Substring(previous, start - previous) + " (" + expression.Substring(start, 1 + end - start).Trim() + ") ";
+            previous = end + 1;
+        }
+        // Si falta algo de texto, lo añadimos...
+        result += expression.Substring(previous, expression.Length - previous);
+        return result.Trim();
+    }
+    public static int GetClosingParenthesisIndex(int current, string expression)
+    {
+        int count = 1;
+
+        if (expression[current] != '(') throw new Exception("Not a parenthesis!");
+        for (int i = current + 1; i < expression.Length; i++)
+        {
+            if (expression[i] == '(') ++count;
+            if (expression[i] == ')')
+            {
+                --count;
+                if (count == 0) return i;
+            }
+        }
+
+        return -1;
+    }
+    public static int GetOpeningParenthesisIndex(int current, string expression)
+    {
+        int count = 1;
+
+        if (expression[current] != ')') throw new Exception("Not a parenthesis!");
+        for (int i = current - 1; i >= 0; i--)
+        {
+            if (expression[i] == ')') ++count;
+            if (expression[i] == '(')
+            {
+                --count;
+                if (count == 0) return i;
+            }
+        }
+
+        return -1;
+    }
+    
+    public static string[] SplitOutsideOfParenthesis(string str, char split)
+    {
+        List<string> result = new List<string>();
+
+        string partial = "";
+
+        int i = 0;
+        while (i < str.Length)
+        {
+            if (str[i] == '(')
+            {
+                int j = GetClosingParenthesisIndex(i, str) + 1;
+                partial += str.Substring(i, j - i);
+                i = j;
+            }
+            else if (str[i] == split)
+            {
+                result.Add(partial.Trim());
+                partial = "";
+                ++i;
+            }
+            else
+            {
+                partial += str[i];
+                ++i;
+            }
+        }
+
+        if (partial.Trim().Length != 0) result.Add(partial.Trim());
+
+        return result.ToArray();
+    }
+
+    private static bool CheckParenthesis(string expression)
+    {
+        int count = 0;
+        for (int i = 0; i < expression.Length; ++i)
+        {
+            if (expression[i] == '(') ++count;
+            if (expression[i] == ')') --count;
+        }
+        if (count == 0) return true;
+        return false;
+    }
+    private static bool CheckLogicSymbols(string expression)
+    {
+        // Miramos si contiene &, |, ! seguidos...
+        for (int i = 1; i < expression.Length; ++i)
+        {
+            if (expression[i - 1] == '!' && expression[i] == '!') return false;
+            if (expression[i - 1] == '&' && expression[i] == '&') return false;
+            if (expression[i - 1] == '|' && expression[i] == '|') return false;
+        }
+
+        // Miramos si los simbolos estan separados por espacios...
+        for (int i = 1; i < expression.Length - 1; ++i)
+        {
+            char c = expression[i];
+            if (c == '!' || c == '&' || c == '|')
+            {
+                if (expression[i - 1] != ' ' && expression[i + 1] != ' ') return false;
+            }
+        }
+
+        // Deberiamos revisar que los operadores son correctos... por ahora no.
+
+        return true;
+    }
+
 }

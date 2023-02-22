@@ -1,11 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <PackageId>CSL</PackageId>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Version>1.0.0</Version>
-    <Authors>Fernando</Authors>
-    <Company>Gomez</Company>
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,7 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="BooleanExpression\" />
+    <Compile Remove="NTree\**" />
+    <EmbeddedResource Remove="NTree\**" />
+    <None Remove="NTree\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.13.5" />
   </ItemGroup>
 
 </Project>

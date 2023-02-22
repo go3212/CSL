@@ -49,10 +49,8 @@ namespace CSL.Trees
             return m_Children.ElementAt(i);
         }
 
-        public LinkedList<NTree<T>>? GetChilds()
+        public LinkedList<NTree<T>> GetChilds()
         {
-            if (m_Children == null) return null;
-            if (m_Children.Count == 0) return null;
             return m_Children;
         }
 
